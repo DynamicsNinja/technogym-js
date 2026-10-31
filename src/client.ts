@@ -151,18 +151,15 @@ export class TechnogymClient {
     return (await this.#requireSession()).user;
   }
 
-  /** The facility training paths are sent to; see `TechnogymClientOptions.facility`. */
-  facilityOf(user: UserInfo): Facility {
-    const facility = this.#facility
-      ? user.facilities.find((f) => f.id === this.#facility || f.url === this.#facility)
-      : user.facilities[0];
-    if (!facility) {
-      throw new TechnogymError(
-        this.#facility
-          ? `The account has no facility "${this.#facility}"`
-          : "The account has no facility, so training endpoints cannot be addressed",
-      );
-    }
+  /**
+   * The facility training paths are sent to (see `TechnogymClientOptions.facility`), or `null` for
+   * an account with no facility. Live on 2026-10-31, an account whose login listed no facilities
+   * got the same answers with no facility prefix as with any prefix, so paths go out unprefixed.
+   */
+  facilityOf(user: UserInfo): Facility | null {
+    if (!this.#facility) return user.facilities[0] ?? null;
+    const facility = user.facilities.find((f) => f.id === this.#facility || f.url === this.#facility);
+    if (!facility) throw new TechnogymError(`The account has no facility "${this.#facility}"`);
     return facility;
   }
 
@@ -239,7 +236,8 @@ export class TechnogymClient {
     const resolved = path.replaceAll("{userId}", encodeURIComponent(session.user.userId));
     const headers = new Headers(appHeaders());
     headers.set("authorization", `Bearer ${session.token}`);
-    const res = await this.#fetcher.request(`${SERVICES_URL}/${encodeURIComponent(facility.url)}${resolved}`, {
+    const prefix = facility?.url ? `/${encodeURIComponent(facility.url)}` : "";
+    const res = await this.#fetcher.request(`${SERVICES_URL}${prefix}${resolved}`, {
       method: "POST",
       json: body,
       headers,

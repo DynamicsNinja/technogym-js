@@ -50,7 +50,15 @@ const session = await technogym.getWorkoutSession(latest!.sessionId, latest!.dat
 
 ## 3. Methods and endpoints
 
-All training paths are `POST https://services.mywellness.com/{facilityUrl}{path}`.
+All training paths are `POST https://services.mywellness.com/{facilityUrl}{path}`. An account can
+have NO facilities (the login's `facilities` is `[]`); then paths go out with no prefix. Verified
+live 2026-10-31: on such an account the server answered identically with no prefix and with any
+made-up prefix.
+
+Live-verified on 2026-10-31 (one account, bike sessions): login, `getMovergy`, `listSessions`,
+`findSessionDate`, `getWorkoutSession`, `getExerciseAnalytics` / `analyzeExercise` (channels
+Power, Rpm, HDistance, Level, Calories). `getSessionHeartRate` returned an empty trace for a bike
+session whose exercise analytics did carry HR; for per-exercise HR use `ExerciseAnalytics.hr`.
 
 | Method | Path | Body |
 |---|---|---|
@@ -64,8 +72,7 @@ All training paths are `POST https://services.mywellness.com/{facilityUrl}{path}
 `getUser()` makes no request. `findSessionDate` searches every activity type
 (`onlyWorkouts: false`). `getRecentWorkouts` loads sessions sequentially on purpose.
 
-Live verification: the request shapes follow health_mcp's working Python client; this port has
-only been tested against mocks. Treat a shape difference against a live account as a bug here.
+Request shapes follow health_mcp's working Python client.
 
 ## 4. Layout
 

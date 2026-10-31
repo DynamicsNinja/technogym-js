@@ -187,6 +187,22 @@ describe("services", () => {
     await expect(client.services("/x")).rejects.toThrow(/non-JSON/);
   });
 
+  it("sends paths without a facility prefix when the account has none", async () => {
+    const urls: string[] = [];
+    server.use(
+      http.post("https://services.mywellness.com/Training/User/u1/MyMovergy", ({ request }) => {
+        urls.push(request.url);
+        return HttpResponse.json({ data: { movergy: 1 } });
+      }),
+    );
+    const s = session();
+    s.user.facilities = [];
+    const client = new TechnogymClient();
+    client.setSession(s);
+    await client.services("/Training/User/{userId}/MyMovergy");
+    expect(urls).toEqual(["https://services.mywellness.com/Training/User/u1/MyMovergy"]);
+  });
+
   it("uses the facility option, by id or url", async () => {
     const urls: string[] = [];
     server.use(
