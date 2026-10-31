@@ -1,0 +1,12 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    // The server uses the library ONLY through its public entry point, resolved to THIS commit's
+    // source. tsup inlines it at build time, so a published server always contains exactly the
+    // library it was tested against.
+    "paths": {
+      "technogym-js": ["../src/index.ts"]
+    }
+  },
+  "include": ["src", "tests"]
+}

@@ -1,0 +1,95 @@
+{
+  "name": "technogym-js",
+  "version": "0.1.0",
+  "description": "TypeScript client for the Technogym mywellness API, for Node and Next.js server runtimes",
+  "keywords": [
+    "technogym",
+    "mywellness",
+    "technogym-api",
+    "mywellness-api",
+    "gym",
+    "fitness",
+    "fitness-api",
+    "workouts",
+    "strength-training",
+    "treadmill",
+    "heart-rate",
+    "quantified-self",
+    "nodejs",
+    "nextjs",
+    "typescript"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DynamicsNinja/technogym-js.git"
+  },
+  "bugs": {
+    "url": "https://github.com/DynamicsNinja/technogym-js/issues"
+  },
+  "author": "ificko",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "AGENTS.md",
+    "NOTICE",
+    "CHANGELOG.md"
+  ],
+  "workspaces": [
+    "mcp"
+  ],
+  "dependencies": {},
+  "peerDependencies": {
+    "@types/node": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "@types/node": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src tests scripts examples mcp/src mcp/tests",
+    "format": "prettier --write .",
+    "login": "tsx scripts/login.ts",
+    "demo": "tsx examples/demo.ts",
+    "check": "npm run typecheck && npm run lint && npm run build && npm test && npm run check -w mcp",
+    "prepublishOnly": "npm run check"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.0.0",
+    "eslint": "^9.39.5",
+    "msw": "^2.6.0",
+    "prettier": "^3.9.8",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.15",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.70.1",
+    "vitest": "^2.1.0"
+  }
+}

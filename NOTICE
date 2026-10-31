@@ -1,0 +1,12 @@
+technogym-js
+
+The endpoint surface, request shapes and response parsing of this library follow the MIT-licensed
+Technogym MCP server in health_mcp:
+
+  health_mcp/technogym — https://github.com/ErikAnkerKilbergSkallevold/health_mcp/tree/main/technogym
+    Copyright (c) Erik Anker Kilberg Skallevold and contributors
+
+That project is not affiliated with this one.
+
+Technogym and mywellness are trademarks of Technogym S.p.A. This project is not affiliated with,
+endorsed by, or supported by Technogym.
