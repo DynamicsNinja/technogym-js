@@ -51,6 +51,10 @@ The server needs Node 22.13 or newer (`node:sqlite`). The image provides it.
 - **Revoke everyone:** `node http.mjs revoke --all`.
 - **Rotate the key:** prepend a new key to `SEAL_KEYS` and redeploy. The first key seals; every
   key unseals. Keep old keys: sealed client ids never expire and only unseal under their key.
+- **Usage stats:** `https://technogym.ficdev.xyz/mcp/stats` (and `/mcp/stats.json`, which the
+  site's `/stats` page reads) are public counts, recomputed at most every 5 minutes. The 90-day
+  trend needs one row per day, written by `node http.mjs snapshot`: a Dokploy **Schedule** on this
+  application, cron `0 * * * *`. "Active" means calling at least one tool, read from the log files.
 - **Logs** are JSON lines (grant prefix, person prefix, RPC method, tool, status, ms; never tokens,
   emails, passwords or payloads) on stdout and in `/data/logs/YYYY-MM.jsonl`.
 

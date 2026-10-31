@@ -1,0 +1,55 @@
+name: Publish
+
+# Publishes to npm when a version tag is pushed: `git tag v0.2.0 && git push origin v0.2.0`.
+# Can also be run by hand from the Actions tab against an existing tag.
+#
+# FIRST RELEASE: trusted publishing cannot be configured for a package that is not on npm yet, so
+# 0.1.0 of both packages was published by hand (`npm publish` and `npm publish -w mcp`). After
+# that, configure DynamicsNinja/technogym-js + publish.yml as the trusted publisher of each
+# package on npmjs.com; from then on a tag is all a release needs.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # npm trusted publishing (OIDC) and provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          # Trusted publishing needs Node >= 22.14 and npm >= 11.5.1.
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm install -g npm@latest
+
+      - name: Tag must match both package versions
+        run: |
+          version="v$(node -p "require('./package.json').version")"
+          mcp="v$(node -p "require('./mcp/package.json').version")"
+          if [ "$GITHUB_REF_TYPE" != "tag" ] || [ "$GITHUB_REF_NAME" != "$version" ] || [ "$mcp" != "$version" ]; then
+            echo "::error::Ref '$GITHUB_REF_NAME' must equal the library ($version) and MCP ($mcp) versions"
+            exit 1
+          fi
+
+      - run: npm ci
+
+      # prepublishOnly runs the root `npm run check`, which includes the MCP package's check.
+      # Each publish is skipped when that version is already on npm, so a re-run resumes.
+      - name: Publish library
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if npm view "technogym-js@$version" version >/dev/null 2>&1; then echo "already published"; else npm publish; fi
+
+      - name: Publish MCP server
+        run: |
+          version="$(node -p "require('./mcp/package.json').version")"
+          if npm view "@dynamicsninja/technogym-mcp@$version" version >/dev/null 2>&1; then echo "already published"; else npm publish -w mcp; fi

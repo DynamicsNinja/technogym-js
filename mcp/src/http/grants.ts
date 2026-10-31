@@ -30,6 +30,37 @@ export const PENDING_LIMIT_S = 600;
 /** Two refreshes racing with the same token (web + mobile, a retry) must not disconnect anyone. */
 export const REUSE_GRACE_S = 60;
 
+/** What the public stats page shows. Counts only: no ids, no hashes, nothing per person. */
+export interface UsageCounts {
+  /** Distinct people (profile-id hashes) with at least one active connection. */
+  users: number;
+  /** Active connections; one person on two clients is two. */
+  connections: number;
+  /** People who used a connection in the last 1 / 7 / 30 days. */
+  active1d: number;
+  active7d: number;
+  active30d: number;
+  /** People per client name, most first. Names are whatever each client registered: untrusted. */
+  byClient: { client: string | null; users: number }[];
+}
+
+/** One row of the daily trend, keyed by UTC date (YYYY-MM-DD). */
+export interface DailyCount {
+  day: string;
+  users: number;
+  connections: number;
+  active7d: number;
+  /** People who used a connection in the 24 hours before the day's snapshot; null on days recorded before it was kept. */
+  active1d: number | null;
+  /** People whose first connection still on record was made that day: new people, not new connections. */
+  joined: number;
+}
+
+export const utcDay = (now: number): string => new Date(now * 1000).toISOString().slice(0, 10);
+
+/** Days whose `joined` the next snapshot recomputes: today, and yesterday so people who join after a once-a-day snapshot still land on their day. */
+const openDays = (now: number): string[] => [utcDay(now - 86_400), utcDay(now)];
+
 export const newGrantId = (): string => randomBytes(16).toString("base64url");
 
 export function checkGeneration(grant: Grant | undefined, generation: number, now: number): GenerationVerdict {
@@ -49,6 +80,12 @@ export function loadSqlite(): Sqlite | null {
   }
 }
 
+export interface GrantOwner {
+  grantId: string;
+  userHash: string;
+  clientName: string | null;
+}
+
 export interface GrantStore {
   create(userHash: string, clientName: string | null, now: number): Grant;
   get(grantId: string): Grant | undefined;
@@ -63,6 +100,13 @@ export interface GrantStore {
   /** Deletes grants idle for 35 days and pending ones older than 10 minutes. */
   purge(now: number): number;
   count(): { active: number; total: number };
+  /** Every grant still on record (purge removes the rest) with its person and client, for the log viewer. */
+  owners(): GrantOwner[];
+  usage(now: number): UsageCounts;
+  /** Upserts today's (UTC) row of the trend from `usage(now)` and settles yesterday's `joined`. Purge never deletes these rows. */
+  recordDay(now: number): void;
+  /** The trend rows from the last `days` UTC days up to `now`, oldest first. */
+  history(now: number, days: number): DailyCount[];
   close(): void;
 }
 
@@ -75,6 +119,9 @@ export function purgeSafely(store: GrantStore, now: number, log: (line: Record<s
     return null;
   }
 }
+
+const byUsersThenName = (a: { client: string | null; users: number }, b: { client: string | null; users: number }) =>
+  b.users - a.users || (a.client === null ? 1 : b.client === null ? -1 : a.client.localeCompare(b.client));
 
 /** Shared by both stores: given the verdict, what `rotate` returns and whether to bump. */
 function rotation(store: GrantStore, grantId: string, generation: number, now: number, bump: () => void): RotateResult {
@@ -92,6 +139,7 @@ function rotation(store: GrantStore, grantId: string, generation: number, now: n
 
 export class MemoryGrantStore implements GrantStore {
   readonly #grants = new Map<string, Grant>();
+  readonly #days = new Map<string, DailyCount>();
 
   create(userHash: string, clientName: string | null, now: number): Grant {
     const grant: Grant = { grantId: newGrantId(), userHash, clientName, state: "pending", generation: 0, rotatedAt: null, created: now, lastUsed: now };
@@ -161,6 +209,38 @@ export class MemoryGrantStore implements GrantStore {
     const all = [...this.#grants.values()];
     return { active: all.filter((g) => g.state === "active").length, total: all.length };
   }
+  owners(): GrantOwner[] {
+    return [...this.#grants.values()].map((g) => ({ grantId: g.grantId, userHash: g.userHash, clientName: g.clientName }));
+  }
+  usage(now: number): UsageCounts {
+    const active = [...this.#grants.values()].filter((g) => g.state === "active");
+    const people = (since: number) => new Set(active.filter((g) => g.lastUsed >= since).map((g) => g.userHash)).size;
+    const clients = new Map<string | null, Set<string>>();
+    for (const g of active) clients.set(g.clientName, (clients.get(g.clientName) ?? new Set()).add(g.userHash));
+    return {
+      users: people(-Infinity),
+      connections: active.length,
+      active1d: people(now - 86_400),
+      active7d: people(now - 7 * 86_400),
+      active30d: people(now - 30 * 86_400),
+      byClient: [...clients].map(([client, users]) => ({ client, users: users.size })).sort(byUsersThenName),
+    };
+  }
+  recordDay(now: number): void {
+    const u = this.usage(now);
+    const day = utcDay(now);
+    this.#days.set(day, { day, users: u.users, connections: u.connections, active7d: u.active7d, active1d: u.active1d, joined: 0 });
+    const first = new Map<string, number>();
+    for (const g of this.#grants.values()) if (g.state !== "pending") first.set(g.userHash, Math.min(first.get(g.userHash) ?? Infinity, g.created));
+    for (const d of openDays(now)) {
+      const row = this.#days.get(d);
+      if (row) row.joined = [...first.values()].filter((t) => utcDay(t) === d).length;
+    }
+  }
+  history(now: number, days: number): DailyCount[] {
+    const from = utcDay(now - (days - 1) * 86_400), to = utcDay(now);
+    return [...this.#days.values()].filter((d) => d.day >= from && d.day <= to).sort((a, b) => a.day.localeCompare(b.day)).map((d) => ({ ...d }));
+  }
   close(): void {}
 }
 
@@ -175,7 +255,19 @@ CREATE TABLE IF NOT EXISTS grants (
   created INTEGER NOT NULL,
   last_used INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS grants_user ON grants (user_hash);`;
+CREATE INDEX IF NOT EXISTS grants_user ON grants (user_hash);
+CREATE TABLE IF NOT EXISTS daily_stats (
+  day TEXT PRIMARY KEY,
+  users INTEGER NOT NULL,
+  connections INTEGER NOT NULL,
+  active_7d INTEGER NOT NULL,
+  joined INTEGER,
+  active_1d INTEGER
+);`;
+
+/** People per day of their first connection still on record. Pending grants never finished connecting, so they don't count. */
+const JOINED_ON = `(SELECT COUNT(*) FROM (SELECT MIN(created) AS first FROM grants WHERE state != 'pending' GROUP BY user_hash)
+  WHERE first >= unixepoch(daily_stats.day) AND first < unixepoch(daily_stats.day) + 86400)`;
 
 type Row = Record<string, unknown>;
 const toGrant = (r: Row): Grant => {
@@ -208,6 +300,12 @@ export class SqliteGrantStore implements GrantStore {
     // Wait for a lock (e.g. the revoke CLI writing from another process) instead of failing at once.
     db.exec("PRAGMA busy_timeout = 5000;");
     db.exec(SCHEMA);
+    // Rows from before `joined` existed: fill them from the grants still on record (all of them, while the trend is younger than the 35-day purge).
+    const columns = new Set((db.prepare("PRAGMA table_info(daily_stats)").all() as Row[]).map((c) => c["name"]));
+    if (!columns.has("joined")) db.exec("ALTER TABLE daily_stats ADD COLUMN joined INTEGER;");
+    // Only the last use of each connection is kept, so past days' active_1d can't be rebuilt: they stay NULL.
+    if (!columns.has("active_1d")) db.exec("ALTER TABLE daily_stats ADD COLUMN active_1d INTEGER;");
+    db.exec(`UPDATE daily_stats SET joined = ${JOINED_ON} WHERE joined IS NULL;`);
     return new SqliteGrantStore(db);
   }
 
@@ -251,6 +349,45 @@ export class SqliteGrantStore implements GrantStore {
   count(): { active: number; total: number } {
     const r = this.#db.prepare("SELECT COUNT(*) AS total, COALESCE(SUM(state = 'active'), 0) AS active FROM grants").get() as Row;
     return { active: Number(r["active"]), total: Number(r["total"]) };
+  }
+  owners(): GrantOwner[] {
+    const rows = this.#db.prepare("SELECT grant_id, user_hash, client_name FROM grants").all() as Row[];
+    return rows.map((r) => ({ grantId: String(r["grant_id"]), userHash: String(r["user_hash"]), clientName: r["client_name"] == null ? null : (r["client_name"] as string) }));
+  }
+  usage(now: number): UsageCounts {
+    const r = this.#db
+      .prepare(
+        `SELECT COUNT(DISTINCT user_hash) AS users, COUNT(*) AS connections,
+           COUNT(DISTINCT CASE WHEN last_used >= ? THEN user_hash END) AS d1,
+           COUNT(DISTINCT CASE WHEN last_used >= ? THEN user_hash END) AS d7,
+           COUNT(DISTINCT CASE WHEN last_used >= ? THEN user_hash END) AS d30
+         FROM grants WHERE state = 'active'`,
+      )
+      .get(now - 86_400, now - 7 * 86_400, now - 30 * 86_400) as Row;
+    const clients = this.#db
+      .prepare("SELECT client_name, COUNT(DISTINCT user_hash) AS users FROM grants WHERE state = 'active' GROUP BY client_name")
+      .all() as Row[];
+    return {
+      users: Number(r["users"]),
+      connections: Number(r["connections"]),
+      active1d: Number(r["d1"]),
+      active7d: Number(r["d7"]),
+      active30d: Number(r["d30"]),
+      byClient: clients.map((c) => ({ client: c["client_name"] == null ? null : (c["client_name"] as string), users: Number(c["users"]) })).sort(byUsersThenName),
+    };
+  }
+  recordDay(now: number): void {
+    const u = this.usage(now);
+    this.#db
+      .prepare("INSERT INTO daily_stats (day, users, connections, active_7d, active_1d) VALUES (?, ?, ?, ?, ?) ON CONFLICT (day) DO UPDATE SET users = excluded.users, connections = excluded.connections, active_7d = excluded.active_7d, active_1d = excluded.active_1d")
+      .run(utcDay(now), u.users, u.connections, u.active7d, u.active1d);
+    this.#db.prepare(`UPDATE daily_stats SET joined = ${JOINED_ON} WHERE day IN (?, ?)`).run(...openDays(now));
+  }
+  history(now: number, days: number): DailyCount[] {
+    const rows = this.#db
+      .prepare("SELECT day, users, connections, active_7d, active_1d, joined FROM daily_stats WHERE day >= ? AND day <= ? ORDER BY day")
+      .all(utcDay(now - (days - 1) * 86_400), utcDay(now)) as Row[];
+    return rows.map((r) => ({ day: String(r["day"]), users: Number(r["users"]), connections: Number(r["connections"]), active7d: Number(r["active_7d"]), active1d: r["active_1d"] == null ? null : Number(r["active_1d"]), joined: Number(r["joined"] ?? 0) }));
   }
   close(): void {
     this.#db.close();

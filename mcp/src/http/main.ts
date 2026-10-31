@@ -3,6 +3,7 @@
  *   node http.mjs                     serve
  *   node http.mjs revoke <grant_id>   disconnect one connection
  *   node http.mjs revoke --all        disconnect everyone
+ *   node http.mjs snapshot            record today's /mcp/stats trend row (run by a Dokploy Schedule)
  */
 import { describeError } from "../errors.js";
 import { createHttpApp } from "./app.js";
@@ -33,6 +34,13 @@ try {
     process.exit(0);
   }
 
+  if (process.argv[2] === "snapshot") {
+    grants.recordDay(now());
+    log({ msg: "stats snapshot", ...grants.count() });
+    grants.close();
+    process.exit(0);
+  }
+
   const purged = purgeSafely(grants, now(), log);
   setInterval(() => {
     const n = purgeSafely(grants, now(), log);
@@ -47,6 +55,7 @@ try {
     trustProxy: config.trustProxy,
     clientIpHeader: config.clientIpHeader,
     log,
+    logDir: config.logDir,
   });
   const server = app.listen(config.port, "0.0.0.0", () => log({ msg: "listening", port: config.port, version, purged, ...grants.count() }));
   const stop = () =>

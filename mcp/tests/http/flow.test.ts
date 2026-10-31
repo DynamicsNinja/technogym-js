@@ -166,6 +166,16 @@ describe.skipIf(NODE_MAJOR < 20)("hosted MCP over HTTP", () => {
     expect(textOf(again)).toMatch(/HTTP 503/);
   });
 
+  it("publishes usage counts without ids", async () => {
+    const { base } = await start();
+    await signIn(base, { email: "a@b.c", password: PASSWORD });
+    const stats = (await (await fetch(`${base}/mcp/stats.json`)).json()) as Record<string, unknown>;
+    expect(stats).toMatchObject({ users: 1, connections: 1 });
+    const page = await (await fetch(`${base}/mcp/stats`)).text();
+    expect(page).toContain("Technogym MCP usage");
+    expect(JSON.stringify(stats)).not.toContain("u1");
+  });
+
   it("rate-limits sign-in per CLIENT_IP_HEADER address", async () => {
     const { base } = await start({ clientIpHeader: "cf-connecting-ip" });
     const fail = (ip: string) => postSignIn(base, { request: "x", email: "a", password: "b" }, { "cf-connecting-ip": ip });

@@ -93,7 +93,7 @@ button.busy::before{content:"";display:inline-block;width:1em;height:1em;margin-
 footer{margin-top:16px;font-size:.8rem;color:var(--muted);text-align:center;max-width:400px}footer a{color:inherit}
 </style>`;
 
-function shell(title: string, body: string): string {
+export function shell(title: string, body: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(title)}</title>${STYLE}</head><body><main>
 <div class="brand">Technogym · mywellness</div>
 ${body}</main><footer>Open source · <a href="${REPO_URL}" target="_blank" rel="noopener noreferrer">technogym-js on GitHub</a> · Not affiliated with Technogym</footer></body></html>`;

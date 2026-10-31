@@ -20,7 +20,9 @@ import { errorPage, pageHeaders } from "./pages.js";
 import { HostedOAuthProvider, type AccessExtra } from "./provider.js";
 import { requestSession } from "./request-session.js";
 import type { Sealer } from "./seal.js";
+import { buildStats, statsHeaders, statsPage, TREND_DAYS, type Stats } from "./stats.js";
 import { isDeadSession, type TechnogymAuth } from "./technogym-auth.js";
+import { ToolUsage } from "./tool-usage.js";
 
 export interface HttpAppDeps {
   publicUrl: URL;
@@ -33,6 +35,8 @@ export interface HttpAppDeps {
   clientIpHeader?: string | null;
   technogymClient?: Omit<TechnogymClientOptions, "sessionStore" | "credentials">;
   log?: (line: Record<string, unknown>) => void;
+  /** The month log files; the stats page counts people who called a tool from them. Without it, no one is active. */
+  logDir?: string;
   now?: () => number;
 }
 
@@ -96,6 +100,23 @@ export function createHttpApp(deps: HttpAppDeps): Express {
 
   app.get("/mcp/healthz", (_req, res) => {
     res.type("text/plain").send("ok");
+  });
+
+  // Public usage counts. Rebuilt at most every five minutes, so a busy page costs the database nothing.
+  const now = deps.now ?? (() => Math.floor(Date.now() / 1000));
+  let stats: { at: number; value: Stats } | null = null;
+  const usage = new ToolUsage(deps.logDir ?? "", () => deps.grants.owners(), TREND_DAYS);
+  const currentStats = () => {
+    const t = now();
+    if (!stats || t - stats.at >= 300) stats = { at: t, value: buildStats(deps.grants, usage, t) };
+    return stats.value;
+  };
+  const statsLimit = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: "draft-7", legacyHeaders: false });
+  app.get("/mcp/stats", statsLimit, (_req, res) => {
+    res.set(statsHeaders()).send(statsPage(currentStats()));
+  });
+  app.get("/mcp/stats.json", statsLimit, (_req, res) => {
+    res.set("cache-control", "public, max-age=300").json(currentStats());
   });
 
   app.use(
