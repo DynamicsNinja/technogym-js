@@ -3,23 +3,26 @@
  * client receives is stored: client ids, sign-in form state, codes and tokens are sealed. The
  * grant table only makes codes single-use, rotates refresh tokens, and allows revocation.
  *
- * mywellness has no refresh token: its bearer token lives until mywellness rejects it. A refresh
- * here only rotates OAuth tokens around the same mywellness session; when a tool call finds the
- * session dead, the grant is revoked and the user reconnects.
+ * mywellness has no refresh token. Its bearer token lives one hour and is renewed by using it, so
+ * each OAuth refresh makes one cheap mywellness call and seals the renewed token. Access tokens
+ * last 20 minutes, so a client in use refreshes well inside mywellness's hour. After an hour with
+ * no refresh the mywellness token is gone: the refresh fails, the grant is revoked and the user
+ * reconnects.
  */
 import type { Response } from "express";
-import { InvalidGrantError, InvalidTokenError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
+import { InvalidGrantError, InvalidTokenError, ServerError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import type { OAuthRegisteredClientsStore } from "@modelcontextprotocol/sdk/server/auth/clients.js";
 import type { AuthorizationParams, OAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/provider.js";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import type { OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { TechnogymAuthError, TechnogymError, TechnogymRateLimitError, type Session as TgSession } from "technogym-js";
-import type { TechnogymAuth } from "./technogym-auth.js";
+import { isDeadSession, type TechnogymAuth } from "./technogym-auth.js";
 import { checkGeneration, type GrantStore } from "./grants.js";
 import { credentialsPage, errorPage, isTrustedRedirect, pageHeaders, redirectTarget } from "./pages.js";
 import type { Sealer } from "./seal.js";
 
-export const ACCESS_TTL_S = 3600;
+/** Well inside the one hour a mywellness token lives, so a refresh renews it before it expires. */
+export const ACCESS_TTL_S = 20 * 60;
 export const CODE_TTL_S = 60;
 export const FORM_TTL_S = 600;
 export const TOUCH_EVERY_S = 60;
@@ -200,9 +203,19 @@ export class HostedOAuthProvider implements OAuthServerProvider {
       this.#grants.revoke(grantId);
       throw new InvalidGrantError("This refresh token was already used, so the connection was disconnected for safety; sign in again");
     }
+    let renewed: TgSession;
+    try {
+      renewed = slim(await this.#auth.refresh(session));
+    } catch (error) {
+      if (isDeadSession(error)) {
+        this.#grants.revoke(grantId);
+        throw new InvalidGrantError("Your mywellness session ended after an hour without use; sign in again");
+      }
+      throw new ServerError("mywellness could not renew the session right now; try again shortly");
+    }
     const rotated = this.#grants.rotate(grantId, generation, this.#now());
     if (!rotated.ok) throw new InvalidGrantError("This connection was disconnected; sign in again");
-    return this.#issue(grantId, client.client_id, rotated.generation, session);
+    return this.#issue(grantId, client.client_id, rotated.generation, renewed);
   }
 
   #issue(grantId: string, clientId: string, generation: number, session: TgSession): OAuthTokens {

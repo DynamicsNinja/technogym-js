@@ -26,10 +26,17 @@ const SESSION: TgSession = {
   user: { userId: "u1", firstName: "Ana", lastName: "B", nickName: "", measurementSystem: "Metric", culture: "en-GB", facilities: [] },
 };
 
+/** `refreshes` counts renewals; set `expired` to make the next renewal find the token gone. */
+const refreshState = { refreshes: 0, expired: false };
 const fakeAuth = (): TechnogymAuth => ({
   async login(_email, password) {
     if (password !== PASSWORD) throw new TechnogymAuthError("Login failed: Wrong password");
     return SESSION;
+  },
+  async refresh(session) {
+    if (refreshState.expired) throw new TechnogymAuthError("MyMovergy: mywellness rejected the session (TokenExpired)");
+    refreshState.refreshes++;
+    return { ...session, token: `${SECRET_TOKEN}-RENEWED-${refreshState.refreshes}` };
   },
 });
 
@@ -40,6 +47,8 @@ const movergy: Handler = () => json({ data: { movergy: 77 } });
 const servers: http.Server[] = [];
 afterEach(() => {
   servers.splice(0).forEach((s) => s.close());
+  refreshState.refreshes = 0;
+  refreshState.expired = false;
 });
 
 async function start(o: { grants?: GrantStore; mywellness?: Handler; trustProxy?: boolean; clientIpHeader?: string } = {}) {
@@ -144,6 +153,30 @@ describe.skipIf(NODE_MAJOR < 20)("hosted MCP over HTTP", () => {
     expect((await refresh(first.refreshToken)).status).toBe(400);
     const res = await fetch(`${base}/mcp`, { method: "POST", headers: { authorization: `Bearer ${second.access_token}`, "content-type": "application/json" }, body: "{}" });
     expect(res.status).toBe(401);
+  });
+
+  it("renews the mywellness token on refresh and uses the renewed one", async () => {
+    const { base, calls } = await start();
+    const first = await signIn(base, { email: "a@b.c", password: PASSWORD });
+    const res = await tokenRequest(base, { grant_type: "refresh_token", refresh_token: first.refreshToken, client_id: first.clientId });
+    const second = (await res.json()) as { access_token: string; expires_in: number };
+    expect(second.expires_in).toBe(20 * 60);
+    const client = await mcpClient(base, second.access_token);
+    await client.callTool({ name: "get_account_info", arguments: {} });
+    expect(calls.at(-1)?.auth).toBe(`Bearer ${SECRET_TOKEN}-RENEWED-1`);
+    await client.close();
+  });
+
+  it("disconnects when a refresh finds the mywellness token expired", async () => {
+    const { base } = await start();
+    const first = await signIn(base, { email: "a@b.c", password: PASSWORD });
+    refreshState.expired = true;
+    const refresh = () => tokenRequest(base, { grant_type: "refresh_token", refresh_token: first.refreshToken, client_id: first.clientId });
+    const res = await refresh();
+    expect(res.status).toBe(400);
+    expect(await res.text()).toMatch(/hour without use/);
+    const res2 = await fetch(`${base}/mcp`, { method: "POST", headers: { authorization: `Bearer ${first.accessToken}`, "content-type": "application/json" }, body: "{}" });
+    expect(res2.status).toBe(401);
   });
 
   it("disconnects when mywellness rejects the token during a tool call", async () => {

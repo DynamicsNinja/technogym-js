@@ -27,8 +27,11 @@ app. There is no official public API; do not invent endpoints.
 - **Re-login is automatic only with credentials** (constructor `credentials`, or a prior
   `login()` on the same client). A session loaded from a store with no credentials throws
   `TechnogymAuthError` when rejected. Concurrent re-logins collapse into one request.
-- **Rotated tokens:** when a response envelope carries a new `token`, the client adopts it and
-  saves it to the store.
+- **Tokens live ONE HOUR** (`expireIn: 3600` in every response, seen live 2026-10-31) and are
+  renewed by use: responses carry a fresh token in the `authorization` header (and often the
+  envelope's `token`). The client adopts it and saves it to the store. A session saved and left
+  unused for over an hour is dead; only credentials bring it back. Several logins of one account
+  coexist (a new login does not end older sessions).
 - **Property units:** `value` is the base unit (s, m, kg); `unit` belongs to `displayValue`, not
   to `value`. A Skillrun `Duration` is `value: 1847` (seconds) with `displayValue: 30.78`,
   `unit: "min"`.

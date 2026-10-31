@@ -252,11 +252,16 @@ export class TechnogymClient {
       }
       throw new TechnogymApiError(`${action}: ${errorsText(envelope.errors)}`, action, envelope.errors);
     }
-    await this.#adoptRotatedToken(session, envelope.token);
+    const fromHeader = res.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+    await this.#adoptRotatedToken(session, fromHeader || envelope.token);
     return ("data" in envelope ? envelope.data : envelope) as T | null;
   }
 
-  /** Some responses carry a fresh `token`; keep it so the session outlives the old one. */
+  /**
+   * A mywellness token lives one hour (`expireIn: 3600`, seen live on 2026-10-31), and responses
+   * hand out a fresh one in the `authorization` header (and often the envelope's `token`). Keeping
+   * it is what lets a session outlive the hour while it is in use.
+   */
   async #adoptRotatedToken(session: Session, token: unknown): Promise<void> {
     if (typeof token !== "string" || !token || token === session.token) return;
     if (this.#session !== session) return; // a newer session already replaced this one

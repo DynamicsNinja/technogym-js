@@ -166,6 +166,20 @@ describe("services", () => {
     expect((await store.load())?.token).toBe("tok-new");
   });
 
+  it("prefers the fresh token in the authorization response header", async () => {
+    server.use(
+      http.post(`${SERVICES}/x`, () =>
+        HttpResponse.json({ data: 1, token: "tok-envelope" }, { headers: { authorization: "Bearer tok-header" } }),
+      ),
+    );
+    const store = new MemorySessionStore();
+    const client = new TechnogymClient({ sessionStore: store });
+    client.setSession(session());
+    await client.services("/x");
+    expect(client.getSession()?.token).toBe("tok-header");
+    expect((await store.load())?.token).toBe("tok-header");
+  });
+
   it("retries a read on 503", async () => {
     let calls = 0;
     server.use(
