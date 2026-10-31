@@ -11,14 +11,14 @@ export const LOGIN_HINT =
   "run `technogym-mcp login` in a terminal, or set TECHNOGYM_EMAIL and TECHNOGYM_PASSWORD in the server's environment";
 
 /** Plain-language text for a failure. Library messages never carry the token or password. */
-export function describeError(error: unknown): string {
+export function describeError(error: unknown, hint: string = LOGIN_HINT): string {
   if (error instanceof NotLoggedInError) {
     return error.reason
-      ? `Not logged in to mywellness (${error.reason}): ${LOGIN_HINT}.`
-      : `Not logged in to mywellness: ${LOGIN_HINT}.`;
+      ? `Not logged in to mywellness (${error.reason}): ${hint}.`
+      : `Not logged in to mywellness: ${hint}.`;
   }
   if (error instanceof TechnogymAuthError) {
-    return `mywellness session expired or was rejected (${error.message}): ${LOGIN_HINT}.`;
+    return `mywellness session expired or was rejected (${error.message}): ${hint}.`;
   }
   if (error instanceof TechnogymRateLimitError) {
     const wait = error.retryAfter !== undefined ? `; retry after ${error.retryAfter} s` : "";
@@ -30,6 +30,6 @@ export function describeError(error: unknown): string {
   return String(error);
 }
 
-export function errorResult(error: unknown): CallToolResult {
-  return { isError: true, content: [{ type: "text", text: describeError(error) }] };
+export function errorResult(error: unknown, hint?: string): CallToolResult {
+  return { isError: true, content: [{ type: "text", text: describeError(error, hint) }] };
 }

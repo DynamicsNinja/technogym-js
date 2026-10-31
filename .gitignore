@@ -8,3 +8,4 @@ coverage/
 mcp/dist/
 mcp/LICENSE
 mcp/NOTICE
+mcp/dist-http/

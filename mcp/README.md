@@ -18,7 +18,13 @@ access to your Technogym **mywellness** training history. Built on
 Interval analysis: call `get_exercise_analytics` once with defaults to get the intervals, then
 again with `from_sec`/`to_sec` set to one interval and `sample_every_seconds=1`.
 
-## Setup
+## Hosted
+
+Add `https://technogym.ficdev.xyz/mcp` as a custom connector (claude.ai: Settings → Connectors)
+and sign in with your mywellness email and password. Your password goes only to mywellness and is
+never stored. Operators: see [HOSTING.md](HOSTING.md).
+
+## Local setup
 
 ```sh
 npx @dynamicsninja/technogym-mcp login     # asks for email and password, saves the session

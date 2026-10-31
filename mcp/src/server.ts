@@ -3,7 +3,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import { TechnogymAuthError } from "technogym-js";
 import { errorResult } from "./errors.js";
 import type { Session } from "./session.js";
-import { buildTools } from "./tools.js";
+import { buildTools, type ToolDef } from "./tools.js";
 
 const INSTRUCTIONS =
   "Read-only access to the user's Technogym mywellness training history: workout sessions, " +
@@ -15,8 +15,15 @@ const INSTRUCTIONS =
   "analyticsId; zoom into one interval with from_sec/to_sec and sample_every_seconds=1 (and " +
   "get_session_heart_rate for the HR trace).";
 
+/** The tools, built once; the hosted server reuses them across per-request servers. */
+export { buildTools };
+
 export function createServer(session: Session, version = "0.0.0"): Server {
-  const tools = buildTools(session);
+  return serverForTools(buildTools(session), session, version);
+}
+
+/** One MCP `Server` over prebuilt tools; the hosted server makes one per HTTP request. */
+export function serverForTools(tools: readonly ToolDef[], session: Session, version = "0.0.0"): Server {
   const byName = new Map(tools.map((def) => [def.tool.name, def]));
   const server = new Server(
     { name: "technogym-mcp", title: "Technogym mywellness (unofficial)", version },
@@ -30,8 +37,8 @@ export function createServer(session: Session, version = "0.0.0"): Server {
       return await def.run(request.params.arguments ?? {});
     } catch (error) {
       // A login made in a terminal since must be picked up by the next call.
-      if (error instanceof TechnogymAuthError) session.reset();
-      return errorResult(error);
+      if (error instanceof TechnogymAuthError) session.reset({ rejected: true, error });
+      return errorResult(error, session.loginHint);
     }
   });
   return server;

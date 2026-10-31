@@ -44,11 +44,18 @@ export class NotLoggedInError extends TechnogymAuthError {
   }
 }
 
-/** Where tools get their `Technogym` from. */
+/**
+ * Where tools get their `Technogym` from: one saved session on stdio, one per request when hosted.
+ */
 export interface Session {
+  /** What to tell the user when mywellness rejects the session. Defaults to the CLI login hint. */
+  readonly loginHint?: string;
   get(): Promise<Technogym>;
-  /** Drops the cached client so the next `get()` reloads the saved session from disk. */
-  reset(): void;
+  /**
+   * Drops the cached client so the next `get()` reloads the saved session. `rejected` means
+   * mywellness refused it; `error` is what it threw.
+   */
+  reset(options?: { rejected?: boolean; error?: unknown }): void;
 }
 
 export interface FileSessionOptions {
